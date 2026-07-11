@@ -54,6 +54,9 @@ def _parse_llm_content(content):
             parsed = ast.literal_eval(text)
             return parsed if isinstance(parsed, dict) else {}
         except Exception:
+            answer_match = re.search(r"[\'\"]answer[\'\"]\s*:\s*[\'\"]([ABCD])[\'\"]", text)
+            if answer_match:
+                return {"answer": answer_match.group(1)}
             return {}
 
 
@@ -189,7 +192,9 @@ class LLMAgentBase():
                         break
             assert len(response_json) == len(self.output_fields), "not returning enough fields"
         except Exception as e:
-            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=_get_raw_content(), error=e)
+            raw_content = _get_raw_content()
+            error_kind = "model_empty_output" if raw_content == "" else "parse_failed"
+            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=f"{error_kind}: {e}")
             if "maximum context length" in str(e) and SEARCHING_MODE:
                 raise AssertionError("The context is too long. Please try to design the agent to have shorter context.")
             # try to fill in the missing field
@@ -200,7 +205,9 @@ class LLMAgentBase():
                 if len(response_json) > len(self.output_fields) and not key in self.output_fields:
                     del response_json[key]
         if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
-            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=_get_raw_content())
+            raw_content = _get_raw_content()
+            error_kind = "model_empty_output" if raw_content == "" else "parse_failed"
+            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=error_kind)
         output_infos = []
         for key, value in response_json.items():
             info = Info(key, self.__repr__(), value, iteration_idx)
@@ -408,16 +415,16 @@ def evaluate_forward_fn(args, forward_str):
                 predicted_idx = 3
             elif isinstance(res, list):
                 try_res = res[1]
-                predicted_idx = LETTER_TO_INDEX[try_res.content]
-            elif res.content in LETTER_TO_INDEX:
+                predicted_idx = LETTER_TO_INDEX[try_res.content] if hasattr(try_res, "content") and try_res.content in LETTER_TO_INDEX else LETTER_TO_INDEX.get(str(try_res), -1)
+            elif hasattr(res, "content") and res.content in LETTER_TO_INDEX:
                 predicted_idx = LETTER_TO_INDEX[res.content]
-            elif 'A)' in res.content:
+            elif hasattr(res, "content") and 'A)' in res.content:
                 predicted_idx = 0
-            elif 'B)' in res.content:
+            elif hasattr(res, "content") and 'B)' in res.content:
                 predicted_idx = 1
-            elif 'C)' in res.content:
+            elif hasattr(res, "content") and 'C)' in res.content:
                 predicted_idx = 2
-            elif 'D)' in res.content:
+            elif hasattr(res, "content") and 'D)' in res.content:
                 predicted_idx = 3
             else:
                 print(f"error in q {q_idx}: unrecognized result format")

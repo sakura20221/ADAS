@@ -281,6 +281,9 @@ def _parse_llm_content(content):
             parsed = ast.literal_eval(text)
             return parsed if isinstance(parsed, dict) else {}
         except Exception:
+            answer_match = re.search(r"[\'\"]answer[\'\"]\s*:\s*[\'\"]([ABCD])[\'\"]", text)
+            if answer_match:
+                return {"answer": answer_match.group(1)}
             return {}
 
 
@@ -459,7 +462,9 @@ class LLMAgentBase:
             if key not in response_json:
                 response_json[key] = _extract_choice(response_json.get(key, "")) if "answer" in key else ""
         if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
-            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=_get_last_raw_content())
+            raw_content = _get_last_raw_content()
+            error_kind = "model_empty_output" if raw_content == "" else "parse_failed"
+            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=error_kind)
 
         output_infos = []
         for key, value in response_json.items():
