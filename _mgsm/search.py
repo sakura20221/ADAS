@@ -11,11 +11,22 @@ import numpy as np
 import openai
 from tqdm import tqdm
 
+from llm_response_utils import (
+    extract_choice,
+    extract_content,
+    fill_missing_response_fields,
+    get_last_raw_content,
+    normalize_response_fields,
+    parse_llm_content,
+    set_last_raw_content,
+    trace_llm_failure,
+)
+
 from mgsm_prompt import get_init_archive, get_prompt, get_reflexion_prompt
 
 client = openai.OpenAI(
-    api_key=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
-    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"),
+    api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY"),
+    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or os.environ.get("DEEPSEEK_BASE_URL"),
 )
 
 from utils import get_all_examples, random_id, bootstrap_confidence_interval, score_mgsm
@@ -37,6 +48,7 @@ def get_json_response_from_gpt(
         system_message,
         temperature=0.5
 ):
+    set_last_raw_content(None)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -46,7 +58,8 @@ def get_json_response_from_gpt(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    json_dict = json.loads(content)
+    set_last_raw_content(content)
+    json_dict = parse_llm_content(content)
     # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
     assert not json_dict is None
     return json_dict
@@ -58,13 +71,15 @@ def get_json_response_from_gpt_reflect(
         model,
         temperature=0.8
 ):
+    set_last_raw_content(None)
     response = client.chat.completions.create(
         model=model,
         messages=msg_list,
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    json_dict = json.loads(content)
+    set_last_raw_content(content)
+    json_dict = parse_llm_content(content)
     assert not json_dict is None
     return json_dict
 
@@ -112,21 +127,19 @@ class LLMAgentBase():
 
     def query(self, input_infos: list, instruction, iteration_idx=-1) -> dict:
         system_prompt, prompt = self.generate_prompt(input_infos, instruction)
+        response_json = {}
         try:
-            response_json = {}
             response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
-            assert len(response_json) == len(self.output_fields), "not returning enough fields"
+            response_json, missing_fields = normalize_response_fields(response_json, self.output_fields, get_last_raw_content())
+            if missing_fields:
+                raise ValueError(f"missing/empty fields: {missing_fields}")
         except Exception as e:
-            # print(e)
+            raw_content = get_last_raw_content()
+            error_kind = "model_empty_output" if raw_content == "" else "parse_failed"
+            trace_llm_failure(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=f"{error_kind}: {e}")
             if "maximum context length" in str(e) and SEARCHING_MODE:
                 raise AssertionError("The context is too long. Please try to design the agent to have shorter context.")
-            # try to fill in the missing field
-            for key in self.output_fields:
-                if not key in response_json and len(response_json) < len(self.output_fields):
-                    response_json[key] = ''
-            for key in copy.deepcopy(list(response_json.keys())):
-                if len(response_json) > len(self.output_fields) and not key in self.output_fields:
-                    del response_json[key]
+            response_json = fill_missing_response_fields(response_json, self.output_fields)
         output_infos = []
         for key, value in response_json.items():
             info = Info(key, self.__repr__(), value, iteration_idx)
@@ -320,10 +333,7 @@ def evaluate_forward_fn(args, forward_str):
 
     for q_idx, res in enumerate(results):
         try:
-            if isinstance(res, Info):
-                extracted_answer = res.content
-            else:
-                extracted_answer = res
+            extracted_answer = extract_content(res)
             correct_answer = answers[q_idx]
             correct = score_mgsm(correct_answer, extracted_answer)
         except Exception as e:

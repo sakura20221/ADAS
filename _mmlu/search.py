@@ -1,10 +1,8 @@
 import argparse
-import ast
 import copy
 import json
 import os
 import random
-import re
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
@@ -15,10 +13,18 @@ import pandas
 from tqdm import tqdm
 
 from mmlu_prompt import get_init_archive, get_prompt, get_reflexion_prompt
+from llm_response_utils import (
+    extract_choice,
+    extract_content,
+    get_last_raw_content,
+    parse_llm_content,
+    set_last_raw_content,
+    trace_llm_failure,
+)
 
 client = openai.OpenAI(
-    api_key=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
-    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"),
+    api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY"),
+    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or os.environ.get("DEEPSEEK_BASE_URL"),
 )
 
 from utils import format_multichoice_question, random_id, bootstrap_confidence_interval
@@ -32,65 +38,6 @@ SYSTEM_MSG = ""
 PRINT_LLM_DEBUG = False
 SEARCHING_MODE = True
 PRINT_EMPTY_TRACE = os.environ.get("ADAS_PRINT_EMPTY_TRACE", "1") == "1"
-_LAST_RAW_CONTENT = None
-
-
-def _parse_llm_content(content):
-    if isinstance(content, dict):
-        return content
-    if not isinstance(content, str):
-        return {}
-
-    text = content.strip()
-    if text.startswith("```"):
-        text = re.sub("^```(?:json)?\\s*", "", text)
-        text = re.sub("\\s*```$", "", text)
-
-    try:
-        parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else {}
-    except Exception:
-        try:
-            parsed = ast.literal_eval(text)
-            return parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            answer_match = re.search(r"[\'\"]answer[\'\"]\s*:\s*[\'\"]([ABCD])[\'\"]", text)
-            if answer_match:
-                return {"answer": answer_match.group(1)}
-            return {}
-
-
-def _extract_choice(text):
-    if text is None:
-        return ""
-    if not isinstance(text, str):
-        text = str(text)
-    match = re.search(r"\b([ABCD])\b", text.upper())
-    return match.group(1) if match else ""
-
-
-def _store_raw_content(content):
-    global _LAST_RAW_CONTENT
-    _LAST_RAW_CONTENT = content
-
-
-def _get_raw_content():
-    return _LAST_RAW_CONTENT
-
-
-def _trace_empty_response(agent, system_prompt, prompt, response_json, raw_content=None, error=None):
-    if not PRINT_EMPTY_TRACE:
-        return
-    print("=== EMPTY RESPONSE TRACE ===")
-    print(f"agent: {agent}")
-    print(f"system_prompt: {system_prompt}")
-    print(f"prompt: {prompt}")
-    if raw_content is not None:
-        print(f"raw_content: {raw_content!r}")
-    print(f"parsed_response: {response_json!r}")
-    if error is not None:
-        print(f"error: {error}")
-    print("=== END EMPTY RESPONSE TRACE ===")
 
 
 @backoff.on_exception(backoff.expo, openai.RateLimitError)
@@ -100,7 +47,7 @@ def get_json_response_from_gpt(
         system_message,
         temperature=0.5
 ):
-    _store_raw_content(None)
+    set_last_raw_content(None)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -110,8 +57,8 @@ def get_json_response_from_gpt(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    _store_raw_content(content)
-    json_dict = _parse_llm_content(content)
+    set_last_raw_content(content)
+    json_dict = parse_llm_content(content)
     if not isinstance(json_dict, dict):
         json_dict = {}
     return json_dict
@@ -123,15 +70,15 @@ def get_json_response_from_gpt_reflect(
         model,
         temperature=0.8
 ):
-    _store_raw_content(None)
+    set_last_raw_content(None)
     response = client.chat.completions.create(
         model=model,
         messages=msg_list,
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    _store_raw_content(content)
-    json_dict = _parse_llm_content(content)
+    set_last_raw_content(content)
+    json_dict = parse_llm_content(content)
     if not isinstance(json_dict, dict):
         json_dict = {}
     return json_dict
@@ -180,34 +127,37 @@ class LLMAgentBase():
 
     def query(self, input_infos: list, instruction, iteration_idx=-1) -> dict:
         system_prompt, prompt = self.generate_prompt(input_infos, instruction)
+        response_json = {}
         try:
-            response_json = {}
             response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
+            raw_content = get_last_raw_content()
             if isinstance(response_json, dict) and "answer" in self.output_fields and "answer" not in response_json:
-                inferred_answer = ""
                 for value in response_json.values():
-                    inferred_answer = _extract_choice(value)
+                    inferred_answer = extract_choice(value)
                     if inferred_answer:
                         response_json["answer"] = inferred_answer
                         break
-            assert len(response_json) == len(self.output_fields), "not returning enough fields"
+                if not response_json.get("answer"):
+                    response_json["answer"] = extract_choice(raw_content)
+            missing_fields = [key for key in self.output_fields if not str(response_json.get(key, "")).strip()]
+            if missing_fields:
+                raise ValueError(f"missing/empty fields: {missing_fields}")
         except Exception as e:
-            raw_content = _get_raw_content()
+            raw_content = get_last_raw_content()
             error_kind = "model_empty_output" if raw_content == "" else "parse_failed"
-            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=f"{error_kind}: {e}")
+            trace_llm_failure(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=f"{error_kind}: {e}")
             if "maximum context length" in str(e) and SEARCHING_MODE:
                 raise AssertionError("The context is too long. Please try to design the agent to have shorter context.")
-            # try to fill in the missing field
             for key in self.output_fields:
                 if not key in response_json and len(response_json) < len(self.output_fields):
-                    response_json[key] = _extract_choice(response_json.get(key, "")) if "answer" in key else ''
+                    response_json[key] = extract_choice(response_json.get(key, "")) if "answer" in key else ''
             for key in copy.deepcopy(list(response_json.keys())):
                 if len(response_json) > len(self.output_fields) and not key in self.output_fields:
                     del response_json[key]
         if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
-            raw_content = _get_raw_content()
+            raw_content = get_last_raw_content()
             error_kind = "model_empty_output" if raw_content == "" else "parse_failed"
-            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=error_kind)
+            trace_llm_failure(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=error_kind)
         output_infos = []
         for key, value in response_json.items():
             info = Info(key, self.__repr__(), value, iteration_idx)
@@ -403,28 +353,25 @@ def evaluate_forward_fn(args, forward_str):
 
     for q_idx, res in enumerate(results):
         try:
+            extracted = ""
+            if isinstance(res, str):
+                extracted = res
+            elif hasattr(res, "content"):
+                extracted = extract_content(res)
+            elif isinstance(res, list) and res:
+                extracted = extract_content(res)
+            choice = extract_choice(extracted)
             if isinstance(res, str) and res in LETTER_TO_INDEX:
                 predicted_idx = LETTER_TO_INDEX[res]
-            elif 'A)' in res:
+            elif choice:
+                predicted_idx = LETTER_TO_INDEX[choice]
+            elif 'A)' in str(extracted):
                 predicted_idx = 0
-            elif 'B)' in res:
+            elif 'B)' in str(extracted):
                 predicted_idx = 1
-            elif 'C)' in res:
+            elif 'C)' in str(extracted):
                 predicted_idx = 2
-            elif 'D)' in res:
-                predicted_idx = 3
-            elif isinstance(res, list):
-                try_res = res[1]
-                predicted_idx = LETTER_TO_INDEX[try_res.content] if hasattr(try_res, "content") and try_res.content in LETTER_TO_INDEX else LETTER_TO_INDEX.get(str(try_res), -1)
-            elif hasattr(res, "content") and res.content in LETTER_TO_INDEX:
-                predicted_idx = LETTER_TO_INDEX[res.content]
-            elif hasattr(res, "content") and 'A)' in res.content:
-                predicted_idx = 0
-            elif hasattr(res, "content") and 'B)' in res.content:
-                predicted_idx = 1
-            elif hasattr(res, "content") and 'C)' in res.content:
-                predicted_idx = 2
-            elif hasattr(res, "content") and 'D)' in res.content:
+            elif 'D)' in str(extracted):
                 predicted_idx = 3
             else:
                 print(f"error in q {q_idx}: unrecognized result format")

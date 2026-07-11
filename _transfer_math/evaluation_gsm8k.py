@@ -19,6 +19,7 @@ client = openai.OpenAI(
 )
 
 from gsm8k_utils import get_all_examples, random_id, bootstrap_confidence_interval, score_gsm8k
+from llm_response_utils import extract_content, parse_llm_content
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
 
 FORMAT_INST = lambda request_keys: f"""Reply EXACTLY with the following JSON format.\n{str(request_keys)}\nDO NOT MISS ANY REQUEST FIELDS and ensure that your response is a well-formed JSON object!\n"""
@@ -44,7 +45,7 @@ def get_json_response_from_gpt(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    json_dict = json.loads(content)
+    json_dict = parse_llm_content(content)
     # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
     assert not json_dict is None
     return json_dict
@@ -61,7 +62,7 @@ def get_json_response_from_gpt_reflect(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    json_dict = json.loads(content)
+    json_dict = parse_llm_content(content)
     assert not json_dict is None
     return json_dict
 
@@ -200,10 +201,7 @@ def evaluate_forward_fn(args, forward_str):
 
     for q_idx, res in enumerate(results):
         try:
-            if isinstance(res, Info):
-                extracted_answer = res.content
-            else:
-                extracted_answer = res
+            extracted_answer = extract_content(res)
             correct_answer = answers[q_idx]
             correct = score_gsm8k(correct_answer, extracted_answer)
         except Exception as e:

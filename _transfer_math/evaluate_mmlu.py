@@ -17,6 +17,7 @@ client = openai.OpenAI(
 )
 
 from mmlu_utils import format_multichoice_question, random_id, bootstrap_confidence_interval
+from llm_response_utils import extract_content, parse_llm_content
 
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
 
@@ -44,7 +45,7 @@ def get_json_response_from_gpt(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    json_dict = json.loads(content, strict=False)
+    json_dict = parse_llm_content(content)
     # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
     assert not json_dict is None
     return json_dict
@@ -62,7 +63,7 @@ def get_json_response_from_gpt_reflect(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    json_dict = json.loads(content)
+    json_dict = parse_llm_content(content)
     assert not json_dict is None
     return json_dict
 
@@ -217,16 +218,16 @@ def evaluate_forward_fn(args, forward_str):
                 predicted_idx = 3
             elif isinstance(res, list):
                 try_res = res[1]
-                predicted_idx = LETTER_TO_INDEX[try_res.content]
-            elif res.content in LETTER_TO_INDEX:
-                predicted_idx = LETTER_TO_INDEX[res.content]
-            elif 'A)' in res.content:
+                predicted_idx = LETTER_TO_INDEX[extract_content(try_res)] if extract_content(try_res) in LETTER_TO_INDEX else -1
+            elif extract_content(res) in LETTER_TO_INDEX:
+                predicted_idx = LETTER_TO_INDEX[extract_content(res)]
+            elif 'A)' in str(extract_content(res)):
                 predicted_idx = 0
-            elif 'B)' in res.content:
+            elif 'B)' in str(extract_content(res)):
                 predicted_idx = 1
-            elif 'C)' in res.content:
+            elif 'C)' in str(extract_content(res)):
                 predicted_idx = 2
-            elif 'D)' in res.content:
+            elif 'D)' in str(extract_content(res)):
                 predicted_idx = 3
             else:
                 print(f"error in q {q_idx}")

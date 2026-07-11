@@ -254,11 +254,12 @@ import json
 import openai
 import backoff
 from utils import random_id
+from llm_response_utils import extract_content, parse_llm_content, set_last_raw_content
 
 # Initialize the OpenAI client
 client = openai.OpenAI(
-    api_key=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
-    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"),
+    api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY"),
+    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or os.environ.get("DEEPSEEK_BASE_URL"),
 )
 
 # Named tuple for holding task information
@@ -284,6 +285,7 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
     Returns:
     - dict: The JSON response.
     \"""
+    set_last_raw_content(None)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -296,7 +298,8 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
         response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    json_dict = json.loads(content)
+    set_last_raw_content(content)
+    json_dict = parse_llm_content(content)
     return json_dict
 
 class LLMAgentBase:
