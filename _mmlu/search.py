@@ -439,7 +439,7 @@ if __name__ == "__main__":
     parser.add_argument('--model',
                         type=str,
                         default='deepseek-v4-flash',
-                        choices=['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner', 'gpt-4-turbo-2024-04-09', 'gpt-3.5-turbo-0125', 'gpt-4o-2024-05-13'])
+                        choices=['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner', 'gpt-4-turbo-2024-04-09', 'gpt-3.5-turbo-0125', 'gpt-4o-2024-05-13', 'gpt-5.4-mini'])
 
     args = parser.parse_args()
     DEFAULT_AGENT_MODEL = args.model
