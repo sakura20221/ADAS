@@ -13,7 +13,10 @@ import re
 
 import openai
 import backoff
-client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"))
+client = openai.OpenAI(
+    api_key=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"),
+)
 
 from DROP_utils import random_id, bootstrap_confidence_interval, load_drop, drop_metric
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])

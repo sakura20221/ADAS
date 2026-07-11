@@ -13,7 +13,10 @@ import re
 
 import openai
 import backoff
-client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"))
+client = openai.OpenAI(
+    api_key=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"),
+)
 
 from gsmhard_utils import get_all_examples, random_id, bootstrap_confidence_interval, score_gsm8k
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])

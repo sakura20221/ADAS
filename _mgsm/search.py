@@ -13,7 +13,10 @@ from tqdm import tqdm
 
 from mgsm_prompt import get_init_archive, get_prompt, get_reflexion_prompt
 
-client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"))
+client = openai.OpenAI(
+    api_key=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"),
+)
 
 from utils import get_all_examples, random_id, bootstrap_confidence_interval, score_mgsm
 
