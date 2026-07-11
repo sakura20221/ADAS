@@ -236,14 +236,27 @@ Analyze the transformation rules based on the provided Examples and determine wh
 # The utility code:
 
 ```python
-from collections import namedtuple, Union
+from collections import namedtuple
+from typing import Union
+import copy
 import numpy as np
 import json
+import os
 
 from utils import random_id, format_arc_data, eval_solution, list_to_string, bootstrap_confidence_interval
 import openai
 import backoff
-from llm_response_utils import extract_content, parse_llm_content, set_last_raw_content
+from llm_response_utils import (
+    EmptyLLMResponseError,
+    extract_choice,
+    extract_content,
+    get_last_raw_content,
+    parse_llm_content,
+    raise_if_empty_response,
+    set_last_raw_content,
+    set_last_response_metadata,
+    trace_llm_failure,
+)
 
 # Initialize the OpenAI client
 client = openai.OpenAI(
@@ -265,7 +278,7 @@ def ROLE_DESC(role):
 # Instruction for the code function
 CODE_INST = \"""You should write a function called `transform` which takes a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`). You should ensure that you implement a version of the transformation that works for both example and test inputs.\"""
 
-@backoff.on_exception(backoff.expo, openai.RateLimitError)
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, EmptyLLMResponseError), max_tries=3)
 def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
     \"""
     Function to get JSON response from GPT model.
@@ -280,6 +293,7 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
     - dict: The JSON response.
     \"""
     set_last_raw_content(None)
+    set_last_response_metadata(None)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -291,7 +305,10 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
         stop=None,
         response_format={"type": "json_object"}
     )
-    content = response.choices[0].message['content']
+    set_last_response_metadata(response)
+    content = response.choices[0].message.content
+    set_last_raw_content(content)
+    raise_if_empty_response(content)
     json_dict = parse_llm_content(content)
     return json_dict
 
@@ -392,7 +409,31 @@ class LLMAgentBase:
         - output_infos (list[Info]): Output information.
         \"""
         system_prompt, prompt = self.generate_prompt(input_infos, instruction)
-        response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
+        response_json = {}
+        try:
+            response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
+            raw_content = get_last_raw_content()
+            if isinstance(response_json, dict) and "answer" in self.output_fields and "answer" not in response_json:
+                for value in response_json.values():
+                    inferred_answer = extract_choice(value)
+                    if inferred_answer:
+                        response_json["answer"] = inferred_answer
+                        break
+                if not response_json.get("answer"):
+                    response_json["answer"] = extract_choice(raw_content)
+            missing_fields = [key for key in self.output_fields if not str(response_json.get(key, "")).strip()]
+            if missing_fields:
+                raise ValueError(f"missing/empty fields: {missing_fields}")
+        except Exception as e:
+            raw_content = get_last_raw_content()
+            error_kind = "model_empty_output" if raw_content == "" else "parse_failed"
+            trace_llm_failure(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=f"{error_kind}: {e}")
+            for key in self.output_fields:
+                if key not in response_json and len(response_json) < len(self.output_fields):
+                    response_json[key] = extract_choice(response_json.get(key, "")) if "answer" in key else ""
+            for key in copy.deepcopy(list(response_json.keys())):
+                if len(response_json) > len(self.output_fields) and key not in self.output_fields:
+                    del response_json[key]
 
         output_infos = []
         for key, value in response_json.items():

@@ -19,13 +19,16 @@ import openai
 from tqdm import tqdm
 
 from llm_response_utils import (
+    EmptyLLMResponseError,
     extract_choice,
     extract_content,
     fill_missing_response_fields,
     get_last_raw_content,
     normalize_response_fields,
     parse_llm_content,
+    raise_if_empty_response,
     set_last_raw_content,
+    set_last_response_metadata,
     trace_llm_failure,
 )
 
@@ -49,7 +52,7 @@ PRINT_LLM_DEBUG = False
 SEARCHING_MODE = True
 
 
-@backoff.on_exception(backoff.expo, openai.RateLimitError)
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, EmptyLLMResponseError), max_tries=3)
 def get_json_response_from_gpt(
         msg,
         model,
@@ -57,6 +60,7 @@ def get_json_response_from_gpt(
         temperature=0.5
 ):
     set_last_raw_content(None)
+    set_last_response_metadata(None)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -65,28 +69,33 @@ def get_json_response_from_gpt(
         ],
         temperature=temperature, max_tokens=1024, stop=None, response_format={"type": "json_object"}
     )
+    set_last_response_metadata(response)
     content = response.choices[0].message.content
     set_last_raw_content(content)
+    raise_if_empty_response(content)
     json_dict = parse_llm_content(content)
     # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
     assert not json_dict is None
     return json_dict
 
 
-@backoff.on_exception(backoff.expo, openai.RateLimitError)
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, EmptyLLMResponseError), max_tries=3)
 def get_json_response_from_gpt_reflect(
         msg_list,
         model,
         temperature=0.8
 ):
     set_last_raw_content(None)
+    set_last_response_metadata(None)
     response = client.chat.completions.create(
         model=model,
         messages=msg_list,
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
+    set_last_response_metadata(response)
     content = response.choices[0].message.content
     set_last_raw_content(content)
+    raise_if_empty_response(content)
     json_dict = parse_llm_content(content)
     assert not json_dict is None
     return json_dict

@@ -10,10 +10,13 @@ import json
 import os
 
 from llm_response_utils import (
+    EmptyLLMResponseError,
     extract_choice,
     get_last_raw_content,
     parse_llm_content,
+    raise_if_empty_response,
     set_last_raw_content,
+    set_last_response_metadata,
     trace_llm_failure,
 )
 
@@ -259,12 +262,24 @@ The constellation ... is a bright W-shaped constellation in the northern sky.
 ```python
 from collections import namedtuple
 from typing import Union
+import copy
 import numpy as np
 import json
+import os
 
 import openai
 import backoff
 from utils import random_id
+from llm_response_utils import (
+    EmptyLLMResponseError,
+    extract_choice,
+    get_last_raw_content,
+    parse_llm_content,
+    raise_if_empty_response,
+    set_last_raw_content,
+    set_last_response_metadata,
+    trace_llm_failure,
+)
 
 # Initialize the OpenAI client
 client = openai.OpenAI(
@@ -281,7 +296,7 @@ FORMAT_INST = lambda request_keys: f"Reply EXACTLY with the following JSON forma
 # Description of the role for the LLM
 ROLE_DESC = lambda role: f"You are a {role}."
 
-@backoff.on_exception(backoff.expo, openai.RateLimitError)
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, EmptyLLMResponseError), max_tries=3)
 def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
     \"""
     Function to get JSON response from GPT model.
@@ -296,6 +311,7 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
     - dict: The JSON response.
     \"""
     set_last_raw_content(None)
+    set_last_response_metadata(None)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -307,8 +323,10 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
         stop=None,
         response_format={"type": "json_object"}
     )
+    set_last_response_metadata(response)
     content = response.choices[0].message.content
     set_last_raw_content(content)
+    raise_if_empty_response(content)
     json_dict = parse_llm_content(content)
     return json_dict
 

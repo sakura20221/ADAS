@@ -5,6 +5,11 @@ import re
 
 PRINT_EMPTY_TRACE = os.environ.get("ADAS_PRINT_EMPTY_TRACE", "1") == "1"
 _LAST_RAW_CONTENT = None
+_LAST_RESPONSE_METADATA = None
+
+
+class EmptyLLMResponseError(RuntimeError):
+    pass
 
 
 def _strip_code_fences(text: str) -> str:
@@ -133,6 +138,31 @@ def get_last_raw_content():
     return _LAST_RAW_CONTENT
 
 
+def set_last_response_metadata(response):
+    global _LAST_RESPONSE_METADATA
+    if response is None:
+        _LAST_RESPONSE_METADATA = None
+        return
+
+    choice = response.choices[0] if getattr(response, "choices", None) else None
+    usage = getattr(response, "usage", None)
+    _LAST_RESPONSE_METADATA = {
+        "id": getattr(response, "id", None),
+        "model": getattr(response, "model", None),
+        "finish_reason": getattr(choice, "finish_reason", None),
+        "usage": usage.model_dump() if hasattr(usage, "model_dump") else str(usage),
+    }
+
+
+def get_last_response_metadata():
+    return _LAST_RESPONSE_METADATA
+
+
+def raise_if_empty_response(content):
+    if content == "":
+        raise EmptyLLMResponseError("LLM returned empty content")
+
+
 def trace_llm_failure(agent, system_prompt, prompt, response_json, raw_content=None, error=None):
     if not PRINT_EMPTY_TRACE:
         return
@@ -142,6 +172,8 @@ def trace_llm_failure(agent, system_prompt, prompt, response_json, raw_content=N
     print(f"prompt: {prompt}")
     if raw_content is not None:
         print(f"raw_content: {raw_content!r}")
+    if _LAST_RESPONSE_METADATA is not None:
+        print(f"response_metadata: {_LAST_RESPONSE_METADATA!r}")
     print(f"parsed_response: {response_json!r}")
     if error is not None:
         print(f"error: {error}")

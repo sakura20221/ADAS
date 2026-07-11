@@ -21,11 +21,14 @@ from tqdm import tqdm
 
 from mmlu_prompt import get_init_archive, get_prompt, get_reflexion_prompt
 from llm_response_utils import (
+    EmptyLLMResponseError,
     extract_choice,
     extract_content,
     get_last_raw_content,
     parse_llm_content,
+    raise_if_empty_response,
     set_last_raw_content,
+    set_last_response_metadata,
     trace_llm_failure,
 )
 
@@ -47,7 +50,7 @@ SEARCHING_MODE = True
 PRINT_EMPTY_TRACE = os.environ.get("ADAS_PRINT_EMPTY_TRACE", "1") == "1"
 
 
-@backoff.on_exception(backoff.expo, openai.RateLimitError)
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, EmptyLLMResponseError), max_tries=3)
 def get_json_response_from_gpt(
         msg,
         model,
@@ -55,6 +58,7 @@ def get_json_response_from_gpt(
         temperature=0.5
 ):
     set_last_raw_content(None)
+    set_last_response_metadata(None)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -63,28 +67,33 @@ def get_json_response_from_gpt(
         ],
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
+    set_last_response_metadata(response)
     content = response.choices[0].message.content
     set_last_raw_content(content)
+    raise_if_empty_response(content)
     json_dict = parse_llm_content(content)
     if not isinstance(json_dict, dict):
         json_dict = {}
     return json_dict
 
 
-@backoff.on_exception(backoff.expo, openai.RateLimitError)
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, EmptyLLMResponseError), max_tries=3)
 def get_json_response_from_gpt_reflect(
         msg_list,
         model,
         temperature=0.8
 ):
     set_last_raw_content(None)
+    set_last_response_metadata(None)
     response = client.chat.completions.create(
         model=model,
         messages=msg_list,
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
+    set_last_response_metadata(response)
     content = response.choices[0].message.content
     set_last_raw_content(content)
+    raise_if_empty_response(content)
     json_dict = parse_llm_content(content)
     if not isinstance(json_dict, dict):
         json_dict = {}
@@ -161,10 +170,6 @@ class LLMAgentBase():
             for key in copy.deepcopy(list(response_json.keys())):
                 if len(response_json) > len(self.output_fields) and not key in self.output_fields:
                     del response_json[key]
-        if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
-            raw_content = get_last_raw_content()
-            error_kind = "model_empty_output" if raw_content == "" else "parse_failed"
-            trace_llm_failure(self.__repr__(), system_prompt, prompt, response_json, raw_content=raw_content, error=error_kind)
         output_infos = []
         for key, value in response_json.items():
             info = Info(key, self.__repr__(), value, iteration_idx)
