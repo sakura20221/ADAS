@@ -247,7 +247,7 @@ import backoff
 from utils import random_id
 
 # Initialize the OpenAI client
-client = openai.OpenAI()
+client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"))
 
 # Named tuple for holding task information
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])

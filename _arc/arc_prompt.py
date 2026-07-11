@@ -238,7 +238,7 @@ import openai
 import backoff
 
 # Initialize the OpenAI client
-client = openai.OpenAI()
+client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"))
 
 # Named tuple for holding information
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])

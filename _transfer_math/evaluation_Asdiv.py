@@ -13,7 +13,7 @@ import re
 
 import openai
 import backoff
-client = openai.OpenAI()
+client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"))
 
 from Asdiv_utils import get_all_examples, random_id, bootstrap_confidence_interval, score_fn
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
@@ -231,4 +231,3 @@ if __name__ == "__main__":
 
     SEARCHING_MODE = False
     evaluate(args)
-

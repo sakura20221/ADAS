@@ -9,7 +9,7 @@ import backoff
 import openai
 from tqdm import tqdm
 
-client = openai.OpenAI()
+client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"))
 
 from gpqa_utils import load_questions, random_id, bootstrap_confidence_interval
 

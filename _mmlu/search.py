@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from mmlu_prompt import get_init_archive, get_prompt, get_reflexion_prompt
 
-client = openai.OpenAI()
+client = openai.OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"))
 
 from utils import format_multichoice_question, random_id, bootstrap_confidence_interval
 
