@@ -30,6 +30,7 @@ from llm_response_utils import (
     set_last_raw_content,
     set_last_response_metadata,
     trace_llm_failure,
+    _requires_non_empty_value,
 )
 
 client = openai.OpenAI(
@@ -156,7 +157,10 @@ class LLMAgentBase():
                         break
                 if not response_json.get("answer"):
                     response_json["answer"] = extract_choice(raw_content)
-            missing_fields = [key for key in self.output_fields if not str(response_json.get(key, "")).strip()]
+            missing_fields = [
+                key for key in self.output_fields
+                if key not in response_json or (_requires_non_empty_value(key) and not str(response_json.get(key, "")).strip())
+            ]
             if missing_fields:
                 raise ValueError(f"missing/empty fields: {missing_fields}")
         except Exception as e:

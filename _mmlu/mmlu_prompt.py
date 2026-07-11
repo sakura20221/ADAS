@@ -18,6 +18,7 @@ from llm_response_utils import (
     set_last_raw_content,
     set_last_response_metadata,
     trace_llm_failure,
+    _requires_non_empty_value,
 )
 
 EXAMPLE = {
@@ -279,6 +280,7 @@ from llm_response_utils import (
     set_last_raw_content,
     set_last_response_metadata,
     trace_llm_failure,
+    _requires_non_empty_value,
 )
 
 # Initialize the OpenAI client
@@ -437,7 +439,10 @@ class LLMAgentBase:
                 if not str(response_json.get(key, "")).strip():
                     response_json[key] = extract_choice(response_json.get(key, "")) if "answer" in key else ""
 
-            missing_fields = [key for key in self.output_fields if not str(response_json.get(key, "")).strip()]
+            missing_fields = [
+                key for key in self.output_fields
+                if key not in response_json or (_requires_non_empty_value(key) and not str(response_json.get(key, "")).strip())
+            ]
             if missing_fields:
                 raise ValueError(f"missing/empty fields: {missing_fields}")
         except Exception as e:

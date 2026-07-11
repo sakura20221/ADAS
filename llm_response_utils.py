@@ -6,6 +6,14 @@ import re
 PRINT_EMPTY_TRACE = os.environ.get("ADAS_PRINT_EMPTY_TRACE", "1") == "1"
 _LAST_RAW_CONTENT = None
 _LAST_RESPONSE_METADATA = None
+NON_EMPTY_OUTPUT_FIELDS = {
+    "answer",
+    "choice",
+    "code",
+    "correct",
+    "score",
+    "name",
+}
 
 
 class EmptyLLMResponseError(RuntimeError):
@@ -110,9 +118,16 @@ def normalize_response_fields(response_json, output_fields, raw_content=None):
 
     missing_fields = []
     for key in output_fields:
-        if not str(response_json.get(key, "")).strip():
+        if key not in response_json:
+            missing_fields.append(key)
+        elif _requires_non_empty_value(key) and not str(response_json.get(key, "")).strip():
             missing_fields.append(key)
     return response_json, missing_fields
+
+
+def _requires_non_empty_value(key):
+    lowered = key.lower()
+    return lowered in NON_EMPTY_OUTPUT_FIELDS or lowered.endswith("_answer")
 
 
 def fill_missing_response_fields(response_json, output_fields):
