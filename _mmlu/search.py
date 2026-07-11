@@ -396,10 +396,13 @@ def evaluate_forward_fn(args, forward_str):
             elif 'D)' in res.content:
                 predicted_idx = 3
             else:
-                print(f"error in q {q_idx}")
+                print(f"error in q {q_idx}: unrecognized result format")
+                print(f"raw result: {res!r}")
                 acc_list.append(0)
                 continue
         except Exception as e:
+            print(f"error in q {q_idx}: {e}")
+            print(f"raw result: {res!r}")
             acc_list.append(0)
             continue
 
