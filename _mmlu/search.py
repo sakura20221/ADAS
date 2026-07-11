@@ -186,6 +186,10 @@ class LLMAgentBase():
                     del response_json[key]
         output_infos = []
         for key, value in response_json.items():
+            if value is None:
+                value = ""
+            elif not isinstance(value, str):
+                value = str(value)
             info = Info(key, self.__repr__(), value, iteration_idx)
             output_infos.append(info)
         return output_infos
