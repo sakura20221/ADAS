@@ -29,6 +29,7 @@ SYSTEM_MSG = ""
 
 PRINT_LLM_DEBUG = False
 SEARCHING_MODE = True
+PRINT_RAW_LLM = os.environ.get("ADAS_PRINT_RAW_LLM") == "1"
 
 
 @backoff.on_exception(backoff.expo, openai.RateLimitError)
@@ -47,6 +48,10 @@ def get_json_response_from_gpt(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
+    if PRINT_RAW_LLM:
+        print("=== RAW LLM RESPONSE ===")
+        print(content)
+        print("=== END RAW LLM RESPONSE ===")
     json_dict = json.loads(content)
     # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
     assert not json_dict is None
@@ -65,6 +70,10 @@ def get_json_response_from_gpt_reflect(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
+    if PRINT_RAW_LLM:
+        print("=== RAW LLM RESPONSE ===")
+        print(content)
+        print("=== END RAW LLM RESPONSE ===")
     json_dict = json.loads(content)
     assert not json_dict is None
     return json_dict

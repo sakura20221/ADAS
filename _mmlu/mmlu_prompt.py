@@ -254,6 +254,7 @@ client = openai.OpenAI(
     api_key=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
     base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"),
 )
+PRINT_RAW_LLM = os.environ.get("ADAS_PRINT_RAW_LLM") == "1"
 
 # Named tuple for holding task information
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
@@ -290,6 +291,10 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
         response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
+    if PRINT_RAW_LLM:
+        print("=== RAW LLM RESPONSE ===")
+        print(content)
+        print("=== END RAW LLM RESPONSE ===")
     json_dict = json.loads(content)
     return json_dict
 
