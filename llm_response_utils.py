@@ -174,7 +174,7 @@ def get_last_response_metadata():
 
 
 def raise_if_empty_response(content):
-    if content == "":
+    if content is None or not str(content).strip():
         raise EmptyLLMResponseError("LLM returned empty content")
 
 

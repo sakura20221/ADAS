@@ -50,6 +50,15 @@ PRINT_LLM_DEBUG = False
 SEARCHING_MODE = True
 PRINT_EMPTY_TRACE = os.environ.get("ADAS_PRINT_EMPTY_TRACE", "1") == "1"
 DEFAULT_AGENT_MODEL = "deepseek-v4-flash"
+LEGACY_DEFAULT_AGENT_MODELS = {"gpt-3.5-turbo-0125", "deepseek-v4-flash"}
+
+
+def resolve_agent_model(model=None):
+    if model is None:
+        return DEFAULT_AGENT_MODEL
+    if DEFAULT_AGENT_MODEL != "deepseek-v4-flash" and model in LEGACY_DEFAULT_AGENT_MODELS:
+        return DEFAULT_AGENT_MODEL
+    return model
 
 
 @backoff.on_exception(backoff.expo, (openai.RateLimitError, EmptyLLMResponseError), max_tries=3)
@@ -113,7 +122,7 @@ class LLMAgentBase():
         self.agent_name = agent_name
 
         self.role = role
-        self.model = model or DEFAULT_AGENT_MODEL
+        self.model = resolve_agent_model(model)
         self.temperature = temperature
 
         # give each instance a unique id

@@ -288,6 +288,15 @@ client = openai.OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY"),
     base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or os.environ.get("DEEPSEEK_BASE_URL"),
 )
+LEGACY_DEFAULT_AGENT_MODELS = {"gpt-3.5-turbo-0125", "deepseek-v4-flash"}
+
+
+def resolve_agent_model(model=None):
+    if model is None:
+        return DEFAULT_AGENT_MODEL
+    if DEFAULT_AGENT_MODEL != "deepseek-v4-flash" and model in LEGACY_DEFAULT_AGENT_MODELS:
+        return DEFAULT_AGENT_MODEL
+    return model
 
 # Named tuple for holding task information
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
@@ -349,7 +358,7 @@ class LLMAgentBase:
         self.output_fields = output_fields
         self.agent_name = agent_name
         self.role = role
-        self.model = model or DEFAULT_AGENT_MODEL
+        self.model = resolve_agent_model(model)
         self.temperature = temperature
         self.id = random_id()
     
