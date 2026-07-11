@@ -158,6 +158,13 @@ class LLMAgentBase():
         try:
             response_json = {}
             response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
+            if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
+                print("=== EMPTY ANSWER DETECTED ===")
+                print(f"agent: {self.__repr__()}")
+                print(f"system_prompt: {system_prompt}")
+                print(f"prompt: {prompt}")
+                print(f"raw response_json: {response_json!r}")
+                print("=== END EMPTY ANSWER ===")
             if isinstance(response_json, dict) and "answer" in self.output_fields and "answer" not in response_json:
                 inferred_answer = ""
                 for value in response_json.values():
