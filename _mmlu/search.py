@@ -1,8 +1,10 @@
 import argparse
+import ast
 import copy
 import json
 import os
 import random
+import re
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
@@ -32,6 +34,37 @@ SEARCHING_MODE = True
 PRINT_RAW_LLM = os.environ.get("ADAS_PRINT_RAW_LLM") == "1"
 
 
+def _parse_llm_content(content):
+    if isinstance(content, dict):
+        return content
+    if not isinstance(content, str):
+        return {}
+
+    text = content.strip()
+    if text.startswith("```"):
+        text = re.sub("^```(?:json)?\\s*", "", text)
+        text = re.sub("\\s*```$", "", text)
+
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        try:
+            parsed = ast.literal_eval(text)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+
+def _extract_choice(text):
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    match = re.search(r"\b([ABCD])\b", text.upper())
+    return match.group(1) if match else ""
+
+
 @backoff.on_exception(backoff.expo, openai.RateLimitError)
 def get_json_response_from_gpt(
         msg,
@@ -52,7 +85,7 @@ def get_json_response_from_gpt(
         print("=== RAW LLM RESPONSE ===")
         print(content)
         print("=== END RAW LLM RESPONSE ===")
-    json_dict = json.loads(content)
+    json_dict = _parse_llm_content(content)
     # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
     assert not json_dict is None
     return json_dict
@@ -74,7 +107,7 @@ def get_json_response_from_gpt_reflect(
         print("=== RAW LLM RESPONSE ===")
         print(content)
         print("=== END RAW LLM RESPONSE ===")
-    json_dict = json.loads(content)
+    json_dict = _parse_llm_content(content)
     assert not json_dict is None
     return json_dict
 
@@ -125,6 +158,13 @@ class LLMAgentBase():
         try:
             response_json = {}
             response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
+            if isinstance(response_json, dict) and "answer" in self.output_fields and "answer" not in response_json:
+                inferred_answer = ""
+                for value in response_json.values():
+                    inferred_answer = _extract_choice(value)
+                    if inferred_answer:
+                        response_json["answer"] = inferred_answer
+                        break
             assert len(response_json) == len(self.output_fields), "not returning enough fields"
         except Exception as e:
             # print(e)
@@ -133,7 +173,7 @@ class LLMAgentBase():
             # try to fill in the missing field
             for key in self.output_fields:
                 if not key in response_json and len(response_json) < len(self.output_fields):
-                    response_json[key] = ''
+                    response_json[key] = _extract_choice(response_json.get(key, "")) if "answer" in key else ''
             for key in copy.deepcopy(list(response_json.keys())):
                 if len(response_json) > len(self.output_fields) and not key in self.output_fields:
                     del response_json[key]

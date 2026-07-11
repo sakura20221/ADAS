@@ -1,4 +1,6 @@
+import ast
 import json
+import re
 
 EXAMPLE = {
     "thought": "**Insights:**\nYour insights on what should be the next interesting agent.\n**Overall Idea:**\nyour reasoning and the overall concept behind the agent design.\n**Implementation:**\ndescribe the implementation step by step.",
@@ -256,6 +258,37 @@ client = openai.OpenAI(
 )
 PRINT_RAW_LLM = os.environ.get("ADAS_PRINT_RAW_LLM") == "1"
 
+
+def _parse_llm_content(content):
+    if isinstance(content, dict):
+        return content
+    if not isinstance(content, str):
+        return {}
+
+    text = content.strip()
+    if text.startswith("```"):
+        text = re.sub("^```(?:json)?\\s*", "", text)
+        text = re.sub("\\s*```$", "", text)
+
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        try:
+            parsed = ast.literal_eval(text)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+
+def _extract_choice(text):
+    if text is None:
+        return ""
+    if not isinstance(text, str):
+        text = str(text)
+    match = re.search(r"\b([ABCD])\b", text.upper())
+    return match.group(1) if match else ""
+
 # Named tuple for holding task information
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
 
@@ -295,7 +328,7 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
         print("=== RAW LLM RESPONSE ===")
         print(content)
         print("=== END RAW LLM RESPONSE ===")
-    json_dict = json.loads(content)
+    json_dict = _parse_llm_content(content)
     return json_dict
 
 class LLMAgentBase:
@@ -389,6 +422,18 @@ class LLMAgentBase:
         \"""
         system_prompt, prompt = self.generate_prompt(input_infos, instruction)
         response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
+
+        if isinstance(response_json, dict) and "answer" in self.output_fields and "answer" not in response_json:
+            inferred_answer = ""
+            for value in response_json.values():
+                inferred_answer = _extract_choice(value)
+                if inferred_answer:
+                    response_json["answer"] = inferred_answer
+                    break
+
+        for key in self.output_fields:
+            if key not in response_json:
+                response_json[key] = _extract_choice(response_json.get(key, "")) if "answer" in key else ""
 
         output_infos = []
         for key, value in response_json.items():
