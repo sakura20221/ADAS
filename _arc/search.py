@@ -43,7 +43,7 @@ from utils import random_id, format_arc_data, eval_solution, list_to_string, boo
 
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
 
-FORMAT_INST = lambda request_keys: f"""# Output Format:\nReply EXACTLY with the following JSON format.\n{str(request_keys)}\nDO NOT MISS ANY REQUEST FIELDS and ensure that your response is a WELL-FORMED JSON object!\n"""
+FORMAT_INST = lambda request_keys: f"""# Output Format:\nReply EXACTLY with the following json format.\n{str(request_keys)}\nDO NOT MISS ANY REQUEST FIELDS and ensure that your response is a WELL-FORMED json object!\n"""
 ROLE_DESC = lambda role: f"You are a {role}.\n\n"
 SYSTEM_MSG = ""
 CODE_INST = "You will write code to solve this task by creating a function named `transform`. This function should take a single argument, the input grid as `list[list[int]]`, and returns the transformed grid (also as `list[list[int]]`). You should make sure that you implement a version of the transformation that works for both example and test inputs. Make sure that the transform function is capable of handling both example and test inputs effectively, reflecting the learned transformation rules from the Examples inputs and outputs."

@@ -42,7 +42,7 @@ from utils import format_multichoice_question, random_id, bootstrap_confidence_i
 
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
 
-FORMAT_INST = lambda request_keys: f"""Reply EXACTLY with the following JSON format.\n{str(request_keys)}\nDO NOT MISS ANY REQUEST FIELDS and ensure that your response is a well-formed JSON object!\n"""
+FORMAT_INST = lambda request_keys: f"""Reply EXACTLY with the following json format.\n{str(request_keys)}\nDO NOT MISS ANY REQUEST FIELDS and ensure that your response is a well-formed json object!\n"""
 ROLE_DESC = lambda role: f"You are a {role}."
 SYSTEM_MSG = ""
 

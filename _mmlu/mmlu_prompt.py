@@ -242,7 +242,7 @@ Role_Assignment = {"thought": "Similar to Auto-GPT and expert prompting, we can 
 """
                    }
 
-system_prompt = """You are a helpful assistant. Make sure to return in a WELL-FORMED JSON object."""
+system_prompt = """You are a helpful assistant. Make sure to return in a well-formed json object."""
 
 base = """# Overview
 You are an expert machine learning researcher testing various agentic systems. Your objective is to design building blocks such as prompts and control flows within these systems to solve complex tasks. Your aim is to design an optimal agent performing well on the MMLU (Massive Multitask Language Understanding) benchmark, a challenging evaluation that assesses a model's ability to answer questions across a wide range of subjects and difficulty levels. It includes subjects from STEM, social sciences, humanities, and more.
@@ -302,7 +302,7 @@ def resolve_agent_model(model=None):
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
 
 # Format instructions for LLM response
-FORMAT_INST = lambda request_keys: f"Reply EXACTLY with the following JSON format.\n{str(request_keys)}\nDO NOT MISS ANY FIELDS AND MAKE SURE THE JSON FORMAT IS CORRECT!\n"
+FORMAT_INST = lambda request_keys: f"Reply EXACTLY with the following json format.\n{str(request_keys)}\nDO NOT MISS ANY FIELDS AND MAKE SURE THE json FORMAT IS CORRECT!\n"
 
 # Description of the role for the LLM
 ROLE_DESC = lambda role: f"You are a {role}."
@@ -378,7 +378,7 @@ class LLMAgentBase:
         You are a helpful assistant.
         
         # Output Format:
-        Reply EXACTLY with the following JSON format.
+        Reply EXACTLY with the following json format.
         ...
 
         # Your Task:
