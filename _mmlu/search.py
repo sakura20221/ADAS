@@ -48,6 +48,7 @@ SYSTEM_MSG = ""
 PRINT_LLM_DEBUG = False
 SEARCHING_MODE = True
 PRINT_EMPTY_TRACE = os.environ.get("ADAS_PRINT_EMPTY_TRACE", "1") == "1"
+DEFAULT_AGENT_MODEL = "deepseek-v4-flash"
 
 
 @backoff.on_exception(backoff.expo, (openai.RateLimitError, EmptyLLMResponseError), max_tries=3)
@@ -106,12 +107,12 @@ class LLMAgentBase():
     """
 
     def __init__(self, output_fields: list, agent_name: str,
-                 role='helpful assistant', model='deepseek-v4-flash', temperature=0.5) -> None:
+                 role='helpful assistant', model=None, temperature=0.5) -> None:
         self.output_fields = output_fields
         self.agent_name = agent_name
 
         self.role = role
-        self.model = model
+        self.model = model or DEFAULT_AGENT_MODEL
         self.temperature = temperature
 
         # give each instance a unique id
@@ -424,6 +425,7 @@ if __name__ == "__main__":
                         choices=['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner', 'gpt-4-turbo-2024-04-09', 'gpt-3.5-turbo-0125', 'gpt-4o-2024-05-13'])
 
     args = parser.parse_args()
+    DEFAULT_AGENT_MODEL = args.model
     # search
     SEARCHING_MODE = True
     search(args)
