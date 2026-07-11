@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 import re
 
 EXAMPLE = {
@@ -253,10 +254,12 @@ from utils import random_id
 
 # Initialize the OpenAI client
 client = openai.OpenAI(
-    api_key=os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"),
+    api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("DEEPSEEK_API_KEY"),
     base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE"),
 )
 PRINT_RAW_LLM = os.environ.get("ADAS_PRINT_RAW_LLM") == "1"
+PRINT_EMPTY_TRACE = os.environ.get("ADAS_PRINT_EMPTY_TRACE", "1") == "1"
+_LAST_RAW_CONTENT = None
 
 
 def _parse_llm_content(content):
@@ -288,6 +291,30 @@ def _extract_choice(text):
         text = str(text)
     match = re.search(r"\b([ABCD])\b", text.upper())
     return match.group(1) if match else ""
+
+
+def _trace_empty_response(agent, system_prompt, prompt, response_json, raw_content=None, error=None):
+    if not PRINT_EMPTY_TRACE:
+        return
+    print("=== EMPTY RESPONSE TRACE ===")
+    print(f"agent: {agent}")
+    print(f"system_prompt: {system_prompt}")
+    print(f"prompt: {prompt}")
+    if raw_content is not None:
+        print(f"raw_content: {raw_content!r}")
+    print(f"parsed_response: {response_json!r}")
+    if error is not None:
+        print(f"error: {error}")
+    print("=== END EMPTY RESPONSE TRACE ===")
+
+
+def _set_last_raw_content(content):
+    global _LAST_RAW_CONTENT
+    _LAST_RAW_CONTENT = content
+
+
+def _get_last_raw_content():
+    return _LAST_RAW_CONTENT
 
 # Named tuple for holding task information
 Info = namedtuple('Info', ['name', 'author', 'content', 'iteration_idx'])
@@ -324,10 +351,7 @@ def get_json_response_from_gpt(msg, model, system_message, temperature=0.5):
         response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    if PRINT_RAW_LLM:
-        print("=== RAW LLM RESPONSE ===")
-        print(content)
-        print("=== END RAW LLM RESPONSE ===")
+    _set_last_raw_content(content)
     json_dict = _parse_llm_content(content)
     return json_dict
 
@@ -423,14 +447,6 @@ class LLMAgentBase:
         system_prompt, prompt = self.generate_prompt(input_infos, instruction)
         response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
 
-        if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
-            print("=== EMPTY ANSWER DETECTED ===")
-            print(f"agent: {self.__repr__()}")
-            print(f"system_prompt: {system_prompt}")
-            print(f"prompt: {prompt}")
-            print(f"raw response_json: {response_json!r}")
-            print("=== END EMPTY ANSWER ===")
-
         if isinstance(response_json, dict) and "answer" in self.output_fields and "answer" not in response_json:
             inferred_answer = ""
             for value in response_json.values():
@@ -442,6 +458,8 @@ class LLMAgentBase:
         for key in self.output_fields:
             if key not in response_json:
                 response_json[key] = _extract_choice(response_json.get(key, "")) if "answer" in key else ""
+        if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
+            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=_get_last_raw_content())
 
         output_infos = []
         for key, value in response_json.items():

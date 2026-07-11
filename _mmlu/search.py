@@ -31,7 +31,8 @@ SYSTEM_MSG = ""
 
 PRINT_LLM_DEBUG = False
 SEARCHING_MODE = True
-PRINT_RAW_LLM = os.environ.get("ADAS_PRINT_RAW_LLM") == "1"
+PRINT_EMPTY_TRACE = os.environ.get("ADAS_PRINT_EMPTY_TRACE", "1") == "1"
+_LAST_RAW_CONTENT = None
 
 
 def _parse_llm_content(content):
@@ -65,6 +66,30 @@ def _extract_choice(text):
     return match.group(1) if match else ""
 
 
+def _store_raw_content(content):
+    global _LAST_RAW_CONTENT
+    _LAST_RAW_CONTENT = content
+
+
+def _get_raw_content():
+    return _LAST_RAW_CONTENT
+
+
+def _trace_empty_response(agent, system_prompt, prompt, response_json, raw_content=None, error=None):
+    if not PRINT_EMPTY_TRACE:
+        return
+    print("=== EMPTY RESPONSE TRACE ===")
+    print(f"agent: {agent}")
+    print(f"system_prompt: {system_prompt}")
+    print(f"prompt: {prompt}")
+    if raw_content is not None:
+        print(f"raw_content: {raw_content!r}")
+    print(f"parsed_response: {response_json!r}")
+    if error is not None:
+        print(f"error: {error}")
+    print("=== END EMPTY RESPONSE TRACE ===")
+
+
 @backoff.on_exception(backoff.expo, openai.RateLimitError)
 def get_json_response_from_gpt(
         msg,
@@ -72,6 +97,7 @@ def get_json_response_from_gpt(
         system_message,
         temperature=0.5
 ):
+    _store_raw_content(None)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -81,13 +107,10 @@ def get_json_response_from_gpt(
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    if PRINT_RAW_LLM:
-        print("=== RAW LLM RESPONSE ===")
-        print(content)
-        print("=== END RAW LLM RESPONSE ===")
+    _store_raw_content(content)
     json_dict = _parse_llm_content(content)
-    # cost = response.usage.completion_tokens / 1000000 * 15 + response.usage.prompt_tokens / 1000000 * 5
-    assert not json_dict is None
+    if not isinstance(json_dict, dict):
+        json_dict = {}
     return json_dict
 
 
@@ -97,18 +120,17 @@ def get_json_response_from_gpt_reflect(
         model,
         temperature=0.8
 ):
+    _store_raw_content(None)
     response = client.chat.completions.create(
         model=model,
         messages=msg_list,
         temperature=temperature, max_tokens=4096, stop=None, response_format={"type": "json_object"}
     )
     content = response.choices[0].message.content
-    if PRINT_RAW_LLM:
-        print("=== RAW LLM RESPONSE ===")
-        print(content)
-        print("=== END RAW LLM RESPONSE ===")
+    _store_raw_content(content)
     json_dict = _parse_llm_content(content)
-    assert not json_dict is None
+    if not isinstance(json_dict, dict):
+        json_dict = {}
     return json_dict
 
 
@@ -158,13 +180,6 @@ class LLMAgentBase():
         try:
             response_json = {}
             response_json = get_json_response_from_gpt(prompt, self.model, system_prompt, self.temperature)
-            if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
-                print("=== EMPTY ANSWER DETECTED ===")
-                print(f"agent: {self.__repr__()}")
-                print(f"system_prompt: {system_prompt}")
-                print(f"prompt: {prompt}")
-                print(f"raw response_json: {response_json!r}")
-                print("=== END EMPTY ANSWER ===")
             if isinstance(response_json, dict) and "answer" in self.output_fields and "answer" not in response_json:
                 inferred_answer = ""
                 for value in response_json.values():
@@ -174,7 +189,7 @@ class LLMAgentBase():
                         break
             assert len(response_json) == len(self.output_fields), "not returning enough fields"
         except Exception as e:
-            # print(e)
+            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=_get_raw_content(), error=e)
             if "maximum context length" in str(e) and SEARCHING_MODE:
                 raise AssertionError("The context is too long. Please try to design the agent to have shorter context.")
             # try to fill in the missing field
@@ -184,6 +199,8 @@ class LLMAgentBase():
             for key in copy.deepcopy(list(response_json.keys())):
                 if len(response_json) > len(self.output_fields) and not key in self.output_fields:
                     del response_json[key]
+        if "answer" in self.output_fields and not str(response_json.get("answer", "")).strip():
+            _trace_empty_response(self.__repr__(), system_prompt, prompt, response_json, raw_content=_get_raw_content())
         output_infos = []
         for key, value in response_json.items():
             info = Info(key, self.__repr__(), value, iteration_idx)
